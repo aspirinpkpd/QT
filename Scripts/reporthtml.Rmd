@@ -1,0 +1,1086 @@
+---
+title: "Untitled"
+author: "Ana Ruiz-Garcia"
+date: "9/3/2020"
+output: html_document
+---
+\centering
+
+\clearpage
+
+\tableofcontents
+
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(echo=FALSE, warning=FALSE, message=FALSE)
+options(knitr.table.format = "latex")
+```
+
+
+```{r libraries}
+library(nlme)
+library(lme4)
+library(ggeffects)
+library(effects)
+library(knitr)
+library(tidyverse)
+library(nlme)
+library(contrast)
+library(haven)
+library(plyr)
+library(grid)
+library(tidyr)
+library(gridExtra)
+library(broom.mixed)
+library(broomExtra)# extract param and conf.int from nlme
+library(gridExtra)# multipanel
+library(patchwork)# for dual Y axis
+```
+
+
+\newpage
+
+# Introduction
+
+The International Council for Harmonization (ICH) revised the [E14 Q&A (R3)](https://database.ich.org/sites/default/files/E14_Q%26As_R3_Q%26As.pdf) allowing a population PK-QT modeling to be used as primary analysis for assessing the QTc interval prolongation risk of new drug entities.
+
+PK-QT analysis is intended to determine whether the studied drug has a threshold pharmacologic effect on cardiac repolarization, as detected by QTc prolongation.
+
+
+# Objectives
+
+- To perform a population PK-QT analysis to characterize the exposure-response (E-R) relationship between moxifloxacin and the risk of cardiac repolarization, detected by QTc prolongation
+
+
+# Data Sources and Description
+
+Moxifloxacin data were extracted from the [IQ-CSRC study](https://pubmed.ncbi.nlm.nih.gov/25670536/) wherein 5 QT-prolonging drugs and 1 drug for which no QT prolongation was observed in a through QT (TQT) study were evaluated to demonstrate that E-R analysis could detect QT prolongation in small studies with healthy volunteers. 
+
+The data we will use today are from subjects administered moxifloxacin 400 mg orally (therapeutic dose) on Day 1 followed by 800 mg IV (supratherapeutic dose) on Day 2. 
+
+Study subjects were wearing a Holter for electrocardiogram (ECG) monitoring for 24 hrs. Ten ECG recordings and blood samples for PK analysis were collected at each time point. All study treatments had identical sample
+collection time points. Placebo PK samples were only to be analyzed if deemed necessary.
+
+Pharmacokinetic sampling and ECG assessments for placebo and moxifloxacin were done at predose , 0.5, 1, 2, 3, 4, 6, 8, 12 and 24 hr post-dose. Pre-dose ECG assessments were done at -30, -20, -10, and right before dosing. Baseline ECG values were determined by the mean of the average of the 10 recordings collected at the scheduled times. Blood samples were taken after completion of ECG recordings.
+
+
+## ECG Acquisition and Measurements
+
+Describe ECG collection methodology for your study here, e.g., manually overread at a core ECG lab, readers were/were not blinded to treatment, each subject's ECGs were read by the same reader to minimize between-rater variability, etc.
+
+## Data manipulation
+
+Data were to be excluded if the paired ECG and PK samples were not collected within 15 min of one another and/or if ECG or PK data were missing for a particular time point (with the exception of baseline assessments and placebo treatment where PK is not collected or is zero). 
+
+# Analysis Methods
+
+## Computational Software
+
+The population PK-QT analysis was conducted using a population approach and linear mixed effects models. Estimation was conducted using R Studio using `r sessionInfo()$R.version$version.string` (R Foundation for Statistical Computing, Vienna, Austria) [@Team2014] with the nlme package [@bib:nlme] and maximum likelihood estimation or restricted maximum likelihood estimation. Data manipulation, post-processing, and graphics were conducted using R.
+
+## Model Strategy \label{sec:strategy}
+
+Prior to starting modeling efforts, graphical and tabular summaries were created to check some basic assumptions that will drive the model development:
+
+- Drug effect on HR: The potential of the drug to significantly increase or decrease HR. There is no clear consensus on the specific threshold effect on HR that could influence QTc assessment, however, mean increases or decreases of greater than 10 bpm have been considered problematic [@Garnett2012-kw]
+
+- Demonstration of QT Correction: QTc interval is independent of HR for drug-free and/or placebo treatments. QTcF is usually sufficient correction method for drugs with insignificant effects on HR.
+
+- Assessment of Time Delay Between Drug Concentration and $\Delta$QTc: The default model assumption is a direct temporal relationship between drug concentration and QTc effect.
+
+Following the basic model independent check the next steps are:
+
+- Model Development
+
+- Model adequacy 
+
+
+## Effect of Moxifloxacin on Heart Rate
+
+Prior to determining the most appropriate QT correction factor, the effect of studied drug treatment on heart rate (HR) was evaluated to support the assumption that the QT-HR relationship is the same regardless of the presence or absence of drug. Plots were generated of the mean change from baseline HR versus time grouped by treatment.
+
+A linear mixed-effect model (LME) was used to evaluate the linear relationship between HR and moxifloxacin concentration.
+
+\begin{equation} \label{HReq}
+\Delta HR_{ijk}=(\theta_j + \beta_{0k} + \eta_{0,i})+\gamma \times(HR_{ij0}-\overline{HR}_{ij0})+(\beta_1 +\eta_{1,i}) \times C_{ijk} +\epsilon_{ijk}
+\end{equation}
+
+where $\Delta HR_{ijk}$ is the change from baseline HR for the i$^{th}$ subject, in the j$^{th}$ treatment, at the k$^{th}$ time point (nominal) relative to dosing;j=1 for active drug (moxifloxacin) and j=0 for placebo; $C_{ijk}$ is the concentration at the k$^{th}$ time point for the j$^{th}$ treatment in the i$^{th}$ subject($C_{ijk}$=0 for placebo); $\theta_j$ is the treatment-specific intercept (moxifloxacin versus placebo), $\beta_{0k}$ is the population mean $\Delta$HR (change from baseline) with placebo for time k (representing categorical fixed effect of time to account for diurnal variation); $HR_{ij0}$ is the baseline HR for the i$^{th}$ subject in the j$^{th}$ treatment, $\overline{HR}_{ij0}$ is the overall population mean of all baseline HR ($HR_{ij0}$) values (from combined placebo and active treatment periods), and $\gamma$ is the influence of the baseline HR (centered on population baseline). $\beta_1$ is the slope which quantifies the relationship between $\Delta$ HR and concentration. $\eta_{0,i}$ and $\eta_{1,i}$ are the subject-specific random effects (inter-individual variability) for the intercept and slope, respectively, each with a mean of zero and variance $\omega^2$, and $\epsilon_{ijk}$ is the residual error of the i$^{th}$ subject on the j$^{th}$ treatment at the k$^{th}$ time point with a mean of zero and variance $\sigma^2$.
+
+## Demonstration of QT Correction
+
+The preferred QT correction (unless the studied drug has a significant effect on HR) is the baseline-adjusted Fridericia heart-rate corrected QT interval ($\Delta$QTcF). Unless drug-free QT data is collected in all subjects over a range of heart rates similar to the range of heart rates observed during treatment, the use of subject- and study-specific corrections is not generally recommended.
+
+If studied drug was determined to have no effect on HR (or RR), then a fixed correction was applied to remove the underlying HR effect on the QT interval. The QTcF was the primary correction method in this analysis; if data suggested this method did not adequately correct for the relationship between HR and QT interval, a more appropriate correction could be estimated and reported. 
+
+For fixed corrections, QT interval corrected for heart rate equation is decribed below:
+\begin{equation} \label{QTcor}
+QTc=\frac{QT_{i,j}}{\left(\frac{RR_{i,j}}{1000} \right)^\beta}
+\end{equation}
+
+where i represents the i$^{th}$ individual and j represents the j$^{th}$ measurement time for QT and RR (presented in milliseconds).
+The subject- and population-specific correction factor for calculation of QTcS could be estimated by fitting a LME model to only baseline (pre-dose values on Day 1) individual singlets (not the averaged triplicate) QT and RR measurements from all four study treatment periods as described in equation \ref{QTcorind}:
+
+\begin{equation} \label{QTcorind}
+ln(QT_{i,j}) = (\theta_1 + \eta_{1,i}) + (\theta_2 + \eta_{2,i}) \cdot ln(RR_{i,j}) + \epsilon_{i,j}
+\end{equation}
+
+where ln designates natural logarithmically transformed parameter, i represents the i$^{th}$
+individual and j represents the j$^{th}$ measurement time for QT (milliseconds) and RR (seconds), $\theta_2$  represent the study population specific estimate of the correction factor ($\beta$), and $\theta_1$ is the intercept. $\eta_{1,i}$ and $\eta_{2,i}$ are the subject-specific random effects (inter-individual variability) for the intercept and slope, respectively, each with a mean of zero and variance $\omega^2$, and $\epsilon$ is the residual error with a mean of zero and variance $\sigma^2$.
+
+Thus, $\theta_2$ and $\theta_2$ + $\eta_{2,i}$ represent the study- and subject-specific estimates of the correction factor ($\beta$), respectively.
+
+The analysis dataset used in this project is insufficient for an appropriate estimation of individual- and/or study-specific corrections. Therefore, plots of QT, QTcF, and QTcB versus RR interval were generated using only baseline singlet data to assess the adequacy of each correction factor, to ensure that the correlation between QT and RR was adequately removed with the correction. Comparison of correction methods was made on the basis of the slope estimates from a LME model of QTc as a function of RR as follows:
+
+\begin{equation} \label{QTlme}
+QTc_{i,j} = (\theta_{int} + \eta_{int,i}) + (\theta_{slope} + \eta_{slope,i}) \cdot RR_{i,j} + \epsilon_{i,j}
+\end{equation}
+
+
+Where QTc is the dependent variable (either QTcF, QTcB), i represents the i$^{th}$ individual and j represents the j$^{th}$ measurement time for QTc and RR, $\theta_{int}$ is the intercept, and $\theta_{slope}$ quantifies the relationship between QTc and RR. $\eta_{int,i}$ and $\eta_{slope,i}$  are the subject-specific random effects (inter-individual variability) for the intercept and slope, respectively, each with a mean of zero and variance $\omega^2$, and $\epsilon$ is the residual error with a mean of zero and variance $\sigma^2$. 
+
+The QTc associated with the regression that generated the smallest absolute value of the slope estimate was deemed the most appropriate HR adjusted QT method for use as the dependent variable in the subsequent E-R modeling; ideally the 95% CI for the slope should contain zero.
+
+
+## Assessment of Time Delay Between Drug Concentration and $\Delta$QTc
+
+Concordance, or lack thereof, in the time course of studied drug concentrations and QTcF was evaluated by:
+
+- Examining the mean concentration and $\Delta \Delta$QTcF profiles by dose level. 
+- Linear QTc-drug concentration relationship: a QTc_drug concentration plot incorporating a trend line (i.e, loess or linear regression). The trend line does not reflect a model fit of data but rather is used to detect drug effect and linear assumption.
+If no delay between peak studied drug concentration and peak QTc effect (hysteresis) is apparent as assessed by visual inspection then a direct temporal relationship can be supported. 
+
+
+
+## Characterization of Moxifloxacin Exposure-Response Relationship for QTc \label{sec:modelfit}
+
+Once the basic assumptions described in Section \ref{sec:strategy} were satisfied, then the relationship was evaluated with the pre-specified LME model shown below. In this model the QTc and concentration data from both placebo and moxifloxacin treatment periods (therapeutic and supratherapeutic doses) were analyzed. This base model to describe the dependent variable $\Delta$QTc (QTc change from  baseline) includes the following fixed effect parameters: intercept, slope, the effect of treatment (categorical), time (categorical), and baseline QTc (continuous) on the intercept. Characterizing the placebo response at each nominal time point accounts for the effect of diurnal variation in QTc. Subject is included as a random effect on both the intercept and slope.
+
+\begin{equation} \label{E-R}
+\Delta QTc_{ijk} = (\theta_j + \beta_{0k} + \eta_{0,i}) + \gamma \cdot (QTc_{ij0} - \overline{QTc}_{ij0}) + (\beta_1 + \eta_{1,i}) \cdot C_{ijk} + \epsilon_{ijk}
+\end{equation}
+
+where $\Delta$ $QTc_{ijk}$ is the change from baseline QTc interval for the i$^{th}$ subject, in the j$^{th}$ treatment, at the k$^{th}$ time point (nominal) relative to dosing; j=1 for active drug (moxifloxacin) and j=0 for placebo; $\theta_j$ is the treatment-specific intercept (moxifloxacin versus placebo), $\beta_{0k}$ is the population mean $\Delta$QTc (change from baseline) in the placebo group at each time k (representing categorical fixed effect of time to account for diurnal variation); $\gamma$ is the influence of the baseline QTc (centered on population baseline); $QTc_{ij0}$ is the baseline QTc for the i$^{th}$ subject in the the j$^{th}$ treatment, $\overline{QTc}_{ij0}$ is the overall population mean of all baseline QTc ($QTc_{ij0}$) values (from combined placebo and active treatment periods), and $C_{ijk}$ is the concentration in the i$^{th}$ subject (and $C_{i0k}$=0 for placebo) for the j$^{th}$ treatment at the k$^{th}$ time point; $\beta_1$ is the slope which quantifies the relationship between $\Delta$QTc and concentration. $\eta_{0,i}$ and $\eta_{1,i}$ are the subject-specific random effects (inter-individual variability) for the intercept and slope, respectively, each with a mean of zero and variance $\omega^2$, and $\epsilon_{ijk}$ is the residual error of the i$^{th}$ subject on the j$^{th}$ treatment at the k$^{th}$ time point with a mean of zero and variance $\sigma^2$.
+
+
+The $\Delta$QTc versus concentration model was used to compute the placebo-adjusted change from baseline QTc ($\Delta\Delta$QTc) over the observed concentration range. The model-derived $\Delta\Delta$QTc is the difference between the model-derived $\Delta$QTc at a given concentration under moxifloxacin treatment, and the model-derived $\Delta$QTc under placebo treatment with drug concentration equal to zero.
+Using the contrast function (contrast package) [@bib:contrast] in R and the $\Delta$QTc model object, the mean and two-sided 90% CI for the predicted population average $\Delta\Delta$QTc at concentrations of interest (Cmax) can be computed as follows in Equations \ref{QTeq} and \ref{CI90}.
+
+\begin{equation} \label{QTeq}
+mean \Delta \Delta \overline{QTc}(C) = mean (\Delta \overline{QTc}_{ijk}|j= 1;C_{ijk} =C)-mean (\Delta \overline{QTc}_{ijk}|j = 0;C_{ijk} = 0) 
+\end{equation}
+
+where *mean*$\Delta\Delta\overline{QTc}_{ijk}$| *j* = 1;$C_{ijk}$ = C is the predicted population average $\Delta$QTc under moxifloxacin treatment at plasma concentration C, and *mean*$\Delta QTc_{ijk}$| *j* = 0;$C_{ijk}$ is the
+predicted population average $\Delta$QTc in the absence of drug (i.e. placebo treatment where C = 0).
+
+\begin{equation} \label{CI90}
+90\% CI = mean \Delta \Delta \overline{QTc}(C) \pm t(0.90, DF) \cdot SE (mean \Delta \Delta \overline{QTc}(C)) 
+\end{equation}
+
+where t is the critical value determined from the t-distribution, DF is the degrees of freedom, and SE is the standard error.
+
+## Model Adequacy 
+
+The evaluation of the model fit was based on several goodness-of-fit (GOFs) plots:
+
+- Scatter plots of model predicted (population and individual) versus observed $\Delta$QTc values with line of
+unity and loess line, to demonstrate any patterns suggestive of concentration dependent
+over/under prediction of $\Delta$QTc
+- Scatter plots of population and individual standardized (Pearson weighted) residuals versus $\Delta$QTc and drug concentration, 
+- Boxplots of standardized residuals versus nominal time post dose and treatment (categorical variables) and quantile-quantile (Q-Q) plots of the standardized residuals to check that residuals follow normal distribution with mean of zero
+- Scatter and quantile plots of concentration were used for displaying mean baseline corrected QTc ($\Delta$QTc) and associated 90\% CI derived from the observed data, with model predicted variables and the associated 90\% CI overlayed. Systematic differences between the model predictions and observed data would suggest model misspecification 
+
+
+
+# Results
+
+A total of 13 subjects were enrolled, 6 subjects were administered with placebo and 9 subjects were administered with 2 doses of moxifloxacin. Out of the subjects administered with placebo, 2 received moxifloxacin. Time-matched ECG collections from the placebo treatment group were used to correct for diurnal patterns in QTc data.
+
+The time course of the mean ($\pm$SD) change from baseline QTcF intervals by treatment is displayed in Figure \ref{fig:DQTCFbytreatment}. 
+
+
+```{r Figure Change from baseline per treatment, warning=FALSE, include=FALSE}
+
+
+moxi<-read.csv(file="../../Data/moxi.csv")
+ size<-theme(axis.title.x=element_text(size=30),
+        axis.text.x=element_text(size=30),
+        axis.title.y=element_text(size=30),
+        axis.title.y.right=element_text(size=30),
+        axis.text.y=element_text(size=30),
+        legend.text=element_text(size=30),
+        legend.title=element_text(size=30),
+        plot.title=element_text(size=30),
+        strip.text.x=element_text(size=30),
+        strip.text.y=element_text(size=30))
+
+style<- theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+     panel.grid.minor = element_blank(),
+     axis.line = element_line(colour = "black"))
+
+Ch.trt <- ggplot(data = moxi, aes(x = NTPD, y = DQTF, group = as.factor(DOSE), colour = as.factor(DOSE))) +
+           geom_errorbar( stat="summary",
+           fun.min=function(x) mean(x) - sd(x),
+           fun.max=function(x) mean(x) + sd(x), size=2)+
+          geom_point(stat="summary",fun=mean, size=2)+
+           geom_line(stat="summary",fun=mean, size=2)+
+            # geom="pointrange",size=2) +
+            # stat_summary(fun= mean,
+            # geom = "line",size=2)+
+          theme_bw() + style +
+          labs (x= "Time (hours)", y= "Change from baseline in QTcF (msec)") + 
+  scale_colour_discrete(name="Treatment",
+                        labels=c("Placebo", "Moxifloxacin 400 mg","Moxifloxacin 800 mg"))+ size
+  
+Ch.trt
+
+dev.print(file="Figures/DQTCFbytreatment.png", device=png, width=1200,height=800)
+```
+
+
+\begin{figure}[H]
+\caption{Mean QTcF Change From Baseline Over Time by Treatment Group} 
+\includegraphics[width=\textwidth]{../Report/Figures/DQTCFbytreatment.png}
+\label{fig:DQTCFbytreatment}
+\end{figure}
+
+Tables \ref{tab:delta_placebosum} and \ref{tab:delta_moxisum} display summary statistics for $\Delta$QTcF intervals by timepoint for the placebo group and the 2 doses of moxifloxacin, respectively.
+
+
+
+```{r, Data Summaries deltaQTcF}
+
+sum.delta<-moxi%>%
+     dplyr::group_by(TRTG,DOSE,DAY,NTPD)%>%
+     dplyr::summarize(N=n(),
+                      mDQTcF=mean(DQTF),
+                      medDQTcF=median(DQTF),
+                      maxDQTcF=max(DQTF),
+                      minDQTcF=min(DQTF),
+                      sdDQTcF=sd(DQTF))%>%
+   mutate(Mean=paste(round(mDQTcF,digits=2),"(",round(sdDQTcF,digits=2),")"),
+         range=paste(round(medDQTcF,digits=2),"(",round(maxDQTcF,digits=2),",",round(minDQTcF,digits=2),")"))%>%
+  dplyr::rename(Day=DAY,"Nominal Time (hrs)"=NTPD, "Mean (SD)"=Mean, "Median (Max, Min)"=range)%>%
+  select(-mDQTcF,-medDQTcF,-maxDQTcF,-minDQTcF,-sdDQTcF)%>%ungroup()
+
+sum1.delta<-sum.delta%>%filter(TRTG=="P - placebo")%>%
+  select(-TRTG,-DOSE)%>%
+  kable(booktabs=TRUE, format="latex", linesep = "") 
+sum1.delta %>% writeLines(con="Tables/delta_placebosum.tex") 
+
+sum2.delta<-sum.delta%>%filter(TRTG=="D - moxifloxacin")%>%mutate(TRTG="Moxifloxacin")%>%
+  select(-TRTG,-DOSE)%>%
+  kable(booktabs=TRUE, format="latex", linesep = "") 
+sum2.delta %>% writeLines(con="Tables/delta_moxisum.tex")      
+
+
+```
+\clearpage
+
+
+\captionsetup{justification = RaggedRight,singlelinecheck=false}
+\captionof{table}{Summary of Baseline-Corrected ($\Delta$QTcF) Intervals For the Placebo Treatment per Timepoint}
+\input{Tables/delta_placebosum.tex}
+\label{tab:delta_placebosum}
+
+\clearpage
+
+\captionsetup{justification = RaggedRight,singlelinecheck=false}
+\captionof{table}{Summary of Baseline-Corrected ($\Delta$QTcF) Intervals For Moxifloxacin per Dose and Timepoint}
+\input{Tables/delta_moxisum.tex}
+\label{tab:delta_moxisum}
+
+\clearpage
+
+
+
+
+```{r Figures of Moxifloxacin PK Profiles, warning=FALSE, include=FALSE}
+
+
+pk.dose <- ggplot(data = moxi%>%filter(DOSE>0), aes(x = NTPD, y = CONCC, 
+                  group = as.factor(DOSE), colour = as.factor(DOSE))) +
+           geom_errorbar( stat="summary",
+           fun.min=function(x) mean(x) - sd(x),
+           fun.max=function(x) mean(x) + sd(x), size=2)+
+           geom_point(stat="summary",fun=mean, size=2)+
+           geom_line(stat="summary",fun=mean, size=2)+
+           theme_bw() + style +
+           labs (x= "Time (hours)", y= "Moxifloxacin Concentration (ng/mL)") + 
+           scale_colour_discrete(name="Moxifloxacin Dose",
+                        labels=c("400 mg", "800 mg"))+size
+
+pk.dose
+dev.print(file="Figures/PKprofiles.png", device=png, width=1200,height=800)
+
+```
+
+
+
+
+
+```{r, Summary of Moxifloxacin PK concentration over time}
+
+geom<-function(x,na.rm=TRUE){
+  exp(sum(log(x[x>0]),na.rm=na.rm)/length(x))
+  }
+
+geomcv<-function(x,na.rm=TRUE){
+  sqrt(exp(sd(log(x[x>0]),na.rm=na.rm)^2)-1)*100
+}
+
+
+
+sum.pk<-moxi%>%filter(DOSE>0)%>%
+     dplyr::group_by(DOSE,SUBJID)%>%
+     top_n(1,CONC)%>%ungroup()%>%
+     dplyr::group_by(DOSE)%>%
+     dplyr::summarize(geomDV=geom(CONCC),
+                      geomcvDV=geomcv(CONCC),
+                      medDV=median(CONCC),
+                      maxDV=max(CONCC),
+                      minDV=min(CONCC),
+                       medNTPD=median(NTPD),
+                      maxNTPD=max(NTPD),
+                      minNTPD=min(NTPD))%>%
+   mutate(Mean=paste(round(geomDV,digits=2),"(",round(geomcvDV,digits=2),")"),
+         range=paste(round(medDV,digits=2),"(",round(maxDV,digits=2),",",round(minDV,digits=2),")"),
+         MedianTmax=paste(round(medNTPD,digits=2),"(",round(maxNTPD,digits=2),",",round(minNTPD,digits=2),")"))%>%
+  dplyr::rename( "Geometric Mean (CV%)"=Mean, "Median (Max, Min)"=range, "Dose (mg)"=DOSE,
+                "Tmax Median (Max, Min)"=MedianTmax)%>%ungroup()
+
+ sum.pk2<-sum.pk%>% dplyr::select("Tmax Median (Max, Min)","Geometric Mean (CV%)" ,"Median (Max, Min)")
+ 
+ maxt<-sum.pk2[[1,2]]
+ tsum.pk<-sum.pk2%>% kable(booktabs=TRUE, format="latex", linesep = "") 
+tsum.pk %>% writeLines(con="Tables/pksum.tex")  
+
+
+
+```
+
+Following administration of single PO doses of moxifloxacin 400 mg and 800 mg, peak plasma moxifloxacin concentration Cmax was achieved with a median time to maximum concentration (Tmax) of 1-3 hours post dose. The observed geometric mean (geometric coefficient of variation (CV)%) of Cmax in ng/mL at the 400 mg (therapeutic) and 800 mg (supratherapeutic) doses were `r maxt` and `r sum.pk2[[2,2]]`, respectively. Mean moxifloxacin concentration-time profiles are presented in Figure \ref{fig:PKprofiles}. Table \ref{tab:pksum} presents summary statistics of moxifloxacin maximum concentration per dose group.
+
+
+
+\begin{figure}[H]
+\caption{Mean Moxifloxacin Concentration-Time Profile by Dose Group} 
+\includegraphics[width=\textwidth]{../Report/Figures/PKprofiles.png}
+\label{fig:PKprofiles}
+\end{figure}
+
+
+\captionsetup{justification = RaggedRight,singlelinecheck=false}
+\captionof{table}{Summary of Moxifloxacin Maximum Concentration by Dose}
+\input{Tables/pksum.tex}
+\label{tab:pksum}
+\clearpage
+
+## Effect of Moxifloxacin on Heart Rate
+
+The effect of moxifloxacin on heart rate (HR) was evaluated via a linear mixed-effects modeling with $\Delta$HR as the dependent variable and moxifloxacin plasma concentration as independent variable. 
+
+
+```{r HR effect summary table, warning=FALSE, include=FALSE}
+
+
+sum.HR<-moxi%>%
+     mutate(DAY=ifelse(AVISIT=="PRE-DOSE",1,DAY))%>%
+     dplyr::group_by(TRTG,DOSE,DAY,NTPD)%>%
+     dplyr::summarize(N=n(),
+                      mDHR=mean(DHR),
+                      medDHR=median(DHR),
+                      maxDHR=max(DHR),
+                      minDHR=min(DHR),
+                      sdDHR=sd(DHR))%>%
+   mutate(Mean=paste(round(mDHR,digits=2),"(",round(sdDHR,digits=2),")"),
+         range=paste(round(medDHR,digits=2),"(",round(maxDHR,digits=2),",",round(minDHR,digits=2),")"))%>%
+  dplyr::rename(Day=DAY,"Nominal Time (hrs)"=NTPD, "Mean (SD)"=Mean, "Median (Max, Min)"=range)%>%
+  select(-mDHR,-medDHR,-maxDHR,-minDHR,-sdDHR)%>%ungroup()
+  
+
+
+sum.HR.mox<-sum.HR%>%filter(TRTG=="D - moxifloxacin")%>%
+  kable(booktabs=TRUE, format="latex", linesep = "") 
+sum.HR.mox%>% writeLines(con="Tables/moxiHR.tex") 
+
+
+```
+
+\captionsetup{justification = centering}
+\captionof{table}{Summary of Baseline-Corrected ($\Delta$HR)  Intervals For Moxifloxacin Treatment per Timepoint and Dose Level}
+\input{Tables/moxiHR.tex}
+\label{tab:moxiHR}
+
+
+```{r time delay effect check HR, warning=FALSE, include=FALSE}
+# Mean Baseline corrected placebo effect
+datahr.plot<-moxi%>%
+  dplyr::select(DAY,NTPD,DHR,DOSE,CONC)%>%
+  dplyr::group_by(DOSE,DAY,NTPD)%>%
+  dplyr::summarize(MDHR=mean(DHR),MCONC=mean(CONC))%>%ungroup()%>%
+  mutate(HR=ifelse(DOSE>0,"Moxifloxacin","Placebo"),
+         MCONC=ifelse(MCONC==0,NA,MCONC))
+
+
+## Plot MDHR and moxi mean conc
+
+coeff<-100
+
+labels<-as_labeller(c("2"="Moxifloxacin 800 mg","1"="Moxifloxacin 400 mg"))
+
+t.delay.hr<-ggplot(datahr.plot, aes(x=NTPD,group=HR)) +
+    geom_line( aes(y=MDHR,color=HR), size=2) + 
+  geom_line(aes(y=MCONC/coeff), col="blue",size=2) +
+  geom_hline(yintercept=10, linetype="dashed", color="salmon",size=2) +
+geom_hline(yintercept=-10, linetype="dashed", color="salmon",size=2) +
+    scale_y_continuous(
+    
+    # Features of the first axis
+    name = expression(Delta~HR (bpm)),
+    # Add a second axis and specify its features
+    sec.axis = sec_axis(~.*coeff, name="Moxifloxacin Concentration (ng/mL)")
+  ) + theme_bw()+
+  facet_wrap(.~DAY,labeller=labels)+
+  xlab("Time (hours)")+
+  theme(
+    axis.title.y = element_text(color = "black", size=13),
+    axis.title.y.right = element_text(color = "blue", size=13)) + size 
+  
+
+
+t.delay.hr
+dev.print(file="Figures/DHR_pk.png", device=png, width=1200,height=800)
+```
+
+\begin{figure}[H]
+\caption{Overlay of Time course of Mean Moxifloxacin Concentration and Mean $\Delta$HR by Dose and Treatment Group} 
+\includegraphics[width=\textwidth]{../Report/Figures/DHR_pk.png}
+\label{fig:DHR_pk}
+\end{figure}
+
+
+```{r HR plot, warning=FALSE, include=FALSE}
+
+
+HR.fit <- lme(DHR  ~ TAFD + TRTG + CONC + DBHR -1, data = moxi, 
+                na.action = na.exclude,
+                random = ~ 1 + CONC|SUBJID)
+
+
+saveRDS(HR.fit,file='Model/HR.fit')
+
+
+
+
+
+#Make predictions for entire concentration range for plotting
+
+HR.contr.moxi <- contrast(HR.fit, a = list(TAFD = "HR 0.5", TRTG = "D - moxifloxacin",
+                                          CONC = seq(0,max(moxi$CONC, na.rm = T), by = 10), DBHR = 0),
+                       b = list(TAFD = "HR 0.5", TRTG = "P - placebo",
+                                CONC = 0, DBHR = 0), X = T, confint = 0.90)
+
+HR.pred.moxi <- cbind.data.frame(MEAN = HR.contr.moxi$Contrast, L90 = HR.contr.moxi$Lower,
+                              U90 = HR.contr.moxi$Upper, CONC = seq(0,max(moxi$CONC, na.rm = T), by = 10))
+#
+#Output 90% CIs and point estimates for all parameters
+
+
+
+
+
+fit.plot.deltaHR <- ggplot(data = HR.pred.moxi, aes(CONC, MEAN)) + geom_line() +
+                  theme_bw()+style+
+                   geom_ribbon(aes(CONC, ymin = L90, ymax = U90), alpha = 0.3, fill = "blue") +
+                 labs(y=expression(Delta~Delta~HR (bpm)),
+                   x="Moxifloxacin Concentration (ng/mL)")+ size
+
+
+fit.plot.deltaHR
+dev.print(file="Figures/HRvsmoxi.png", device=png, width=1200,height=800)
+```
+\begin{figure}[H]
+\caption{$\Delta \Delta$HR versus Moxifloxacin Concentration with Model Slope and 90\% Confidence Intervals}
+\includegraphics[width=\textwidth]{../Report/Figures/HRvsmoxi.png}
+\label{fig:HRvsmoxi}
+\end{figure}
+
+
+## Assessment of Appropriate  QT Correction Factor
+
+As Shown in Figure \ref{fig:QTcorrection}, Bazett’s method overcorrected for the trend between the QT and RR intervals (slope estimate of -0.114), and Fridericia’s also did not completely remove the relationship, with a slope estimate (95% CI) which was statistically significantly different from zero (-0.048 [-0.057 to -0.038]). 
+
+
+
+```{r QT correction, warning=FALSE, include=FALSE}
+
+bl<-read.csv(file="../../Data/baseline.csv")
+
+
+# Individual Baseline data QT~RR
+QTu<- lme(QTMEAN ~ RRMEAN, data = bl, random = ~ 1 + RRMEAN | SUBJID,na.action = na.omit)
+# Mod.1$coefficients$fixed[1]
+ #Mod.1$coefficients$fixed[2]
+ conf.1 <-tidy(QTu, effects = "fixed",conf.int=TRUE, conf.level=0.95)
+
+ 
+ 
+  B1<-ggplot(bl, aes(x=RRMEAN, y=QTMEAN)) +
+     geom_point(shape=20, size=3) +
+     theme_bw() +style+
+     geom_abline(intercept=QTu$coefficients$fixed[1],slope=QTu$coefficients$fixed[2],size=2,
+     linetype=2, color="red") +
+geom_text(aes(850,425,label=paste0("Slope (95% CI):", round(conf.1[2,2],digits=3),"(",round(conf.1[2,7],digits=3),",",round(conf.1[2,8],digits=3),")")),size=9,color="blue")+
+xlab("RR (msec)") +
+ylab("QT (msec)") +size
+  
+  
+# Individual Baseline data QTcB~RR
+ QT.b <- lme(QTCB ~ RRMEAN, data = bl, random = ~ 1 + RRMEAN | SUBJID,na.action = na.omit)
+ #Mod.2$coefficients$fixed[1]
+ #Mod.2$coefficients$fixed[2]
+ conf.2 <-tidy(QT.b, effects = "fixed",conf.int=TRUE, conf.level=0.95)
+ 
+ 
+ B2<-ggplot(bl, aes(x=RRMEAN, y=QTCB)) +
+     geom_point(shape=20, size=3) +
+     theme_bw() +style+
+     geom_abline(intercept=QT.b$coefficients$fixed[1],slope=QT.b$coefficients$fixed[2],size=2,
+     linetype=2, color="red") +
+geom_text(aes(1150,450,label=paste0("Slope (95% CI):", round(conf.2[2,2],digits=3),"(",round(conf.2[2,7],digits=3),",",round(conf.2[2,8],digits=3),")")),size=9,color="blue")+
+xlab("RR (msec)") +
+ylab("QTcB (msec)")+ size
+ 
+# Individual Baseline data QTcF~RR
+ 
+ QT.f <- lme(QTCF ~ RRMEAN, data = bl, random = ~ 1 + RRMEAN | SUBJID,na.action = na.omit)
+ #Mod.3$coefficients$fixed[1]
+ #Mod.3$coefficients$fixed[2]
+ conf.3 <-tidy(QT.f, effects = "fixed",conf.int=TRUE, conf.level=0.95)
+ 
+ 
+ B3<-ggplot(bl, aes(x=RRMEAN, y=QTCF)) +
+     geom_point(shape=20, size=3) +
+     theme_bw() +style+
+     geom_abline(intercept=QT.f$coefficients$fixed[1],slope=QT.f$coefficients$fixed[2],size=2,
+     linetype=2, color="red") +
+geom_text(aes(850,450,label=paste0("Slope (95% CI):", round(conf.3[2,2],digits=3),"(",round(conf.3[2,7],digits=3),",",round(conf.3[2,8],digits=3),")")),size=9,color="blue")+
+xlab("RR (msec)") +
+ylab("QTcF (msec)")+size
+ 
+grid.arrange(B1, B2, B3, ncol=1)
+
+dev.print(file="Figures/QTcorrection.png", device=png, width=1200,height=1200)
+
+
+```
+
+\clearpage
+
+\begin{figure}[H]
+\caption{Uncorrected and Fixed Correction Factors to Drug-Free QT intervals} 
+\includegraphics[width=\textwidth]{../Report/Figures/QTcorrection.png}
+\label{fig:QTcorrection}
+\end{figure}
+
+## Assessment of Time Delay Between Drug Concentration and Baseline Corrected QT Intervals
+
+
+The presence of a delay in the time course of moxifloxacin cardiac repolarization effect relative to its PK profile  was evaluated visually by plotting and comparing the mean moxifloxacin concentration and $\Delta \Delta$QTcF profiles over time for both moxifloxacin dose levels (see Figure \ref{fig:DDQTC_pk}). Visual comparison of the mean moxifloxacin PK and $\Delta \Delta$QTcF profiles revealed there was general concordance in the time course of both PK and cardiac repolarization, and no time dependency of the $\Delta \Delta$QTcF on moxifloxacin plasma concentration was evident at either dose.
+
+Figure \ref{fig:delta_loess} is a scatter plot of $\Delta$QTcF and drug concentration data with loess smooth line and 95\% confidence interval and a linear regression line indicating a direct effect between $\Delta$QTc and moxifloxacin concentration.
+
+
+```{r time delay effect check DQT, warning=FALSE, include=FALSE}
+# Mean Baseline corrected placebo effect
+data.plot1<-moxi%>%filter(DOSE==0)%>%
+  dplyr::select(DAY,NTPD,DQTF)%>%
+  dplyr::group_by(DAY,NTPD)%>%
+  dplyr::summarize(MDQTFpb=mean(DQTF))%>%ungroup()
+# Mean Baseline corrected moxi effect
+data.plot2<-moxi%>%filter(DOSE>0)%>%
+  dplyr::select(DOSE,DAY,NTPD,DQTF,CONCC)%>%
+  dplyr::group_by(DOSE,DAY,NTPD)%>%
+  dplyr::summarize(MDQTFmox=mean(DQTF),MCONC=mean(CONCC))%>%ungroup()%>%
+  mutate(DAY=ifelse(NTPD==24 & DOSE==400,1,DAY))
+
+data.plot<-left_join(data.plot2,data.plot1,by=c("DAY","NTPD"))%>%
+            mutate(MDDQTF=MDQTFmox-MDQTFpb)
+
+
+## Plot MDDQTF and moxi mean conc
+
+ coeff<-100
+
+ labels<-as_labeller(c("800"="Moxifloxacin 800 mg","400"="Moxifloxacin 400 mg"))
+
+ t.delay<-ggplot(data.plot, aes(x=NTPD)) +
+     geom_line( aes(y=MDDQTF),size=2,color="salmon") +
+   geom_line(aes(y=MCONC/coeff), color="blue",size=2) +
+     scale_y_continuous(
+
+     # Features of the first axis
+     name = expression(Delta~Delta~QTcF (msec)),
+     # Add a second axis and specify its features
+     sec.axis = sec_axis(~.*coeff, name="Moxifloxacin Concentration (ng/mL)")
+   ) + theme_bw()+
+   facet_wrap(.~DOSE,labeller=labels)+
+   xlab("Time (hours)")+
+   theme(
+     axis.title.y = element_text(color = "salmon", size=13),
+     axis.title.y.right = element_text(color = "blue", size=13)
+   ) + size
+
+ t.delay
+ dev.print(file="Figures/DDQTC_pk.png", device=png, width=1200,height=800)
+```
+
+\begin{figure}[H]
+\caption{Overlay of Time course of Mean Moxifloxacin Concentration and Mean $\Delta \Delta$QTcF by Dose} 
+\includegraphics[width=\textwidth]{../Report/Figures/DDQTC_pk.png}
+\label{fig:DDQTC_pk}
+\end{figure}
+
+
+
+
+
+```{r time delay loess DQT, warning=FALSE, include=FALSE}
+
+
+
+deltaQT.loess<-ggplot(moxi%>%filter(TRTG=="D - moxifloxacin"), aes(CONC, DQTF)) +
+                  geom_point() +
+                  theme_bw() +style+
+                  geom_smooth(method= "loess",level=0.95,fill="blue",alpha=0.3)+
+                  geom_smooth(method='lm',colour="black",se=FALSE)+
+                  labs(y=expression(Delta~QTcF (msec)),
+                   x="Moxifloxacin Concentration (ng/mL)")+ size
+
+ deltaQT.loess
+ dev.print(file="Figures/delta_loess.png", device=png, width=1200,height=800)
+```
+
+\begin{figure}[H]
+\caption{Scatter Plot of Paired  Moxifloxacin Concentration and $\Delta$QTcF} 
+\includegraphics[width=\textwidth]{../Report/Figures/delta_loess.png}
+\label{fig:delta_loess}
+\end{figure}
+
+
+
+
+## Characterization of Moxifloxacin Exposure-Response Relationship for QTc
+
+
+
+```{r QTc-Concentration Analysis, warning=FALSE, include=FALSE }
+
+fit.moxi <- lme(DQTF ~ TAFD + TRTG + CONC + DBQTF -1, data = moxi, 
+                na.action = na.exclude,
+                random = ~ 1 + CONC|SUBJID)
+
+
+saveRDS(fit.moxi,file='Model/fit.moxi')
+
+
+CONCs<-sum.pk[[2,2]]
+
+CONCt<-sum.pk[[1,2]]
+
+#Make prediction at therapeutic and supratherapeutic concentration
+
+supra.pred.moxi <- contrast(fit.moxi,
+                            a = list(TAFD = "HR 0.5", TRTG = "D - moxifloxacin",
+                                     CONC = CONCs, DBQTF = 0),
+                            b = list(TAFD = "HR 0.5", TRTG = "P - placebo",
+                                     CONC = 0, DBQTF = 0), X = T, confint = 0.90)
+
+thera.pred.moxi <- contrast(fit.moxi,
+                            a = list(TAFD = "HR 0.5", TRTG = "D - moxifloxacin",
+                                     CONC = CONCt, DBQTF = 0),
+                            b = list(TAFD = "HR 0.5", TRTG = "P - placebo",
+                                     CONC = 0, DBQTF = 0), X = T, confint = 0.90)
+
+
+
+#Make predictions for entire concentration range for plotting
+
+contr.moxi <- contrast(fit.moxi, a = list(TAFD = "HR 0.5", TRTG = "D - moxifloxacin",
+                                          CONC = seq(0,max(moxi$CONC, na.rm = T), by = 10), DBQTF = 0),
+                       b = list(TAFD = "HR 0.5", TRTG = "P - placebo",
+                                CONC = 0, DBQTF = 0), X = T, confint = 0.90)
+
+pred.moxi <- cbind.data.frame(MEAN = contr.moxi$Contrast, L90 = contr.moxi$Lower,
+                              U90 = contr.moxi$Upper, CONC = seq(0,max(moxi$CONC, na.rm = T), by = 10))
+#
+#Output 90% CIs and point estimates for all parameters
+
+
+
+#Generate prediction plot
+
+val<-data.frame(moxi=c(CONCt,CONCs), QT=c(thera.pred.moxi$Contrast[[1]],supra.pred.moxi$Contrast[[1]]))
+
+p.pred <- ggplot(data = pred.moxi, aes(CONC, MEAN)) + geom_line() +
+  theme_bw()+style+
+  geom_ribbon(aes(CONC, ymin = L90, ymax = U90), alpha = 0.3, fill = "blue") +
+    labs(y=expression(Delta~Delta~QTcF (msec)),
+                   x="Moxifloxacin Concentration (ng/mL)")+ size+
+  geom_point(data=val, mapping=aes(x=moxi,y=QT))+
+    geom_segment(aes(x = CONCt , y =0 , 
+                     xend = CONCt, yend = thera.pred.moxi$Upper[[1]]),
+                 arrow=arrow(),col="blue",linetype="dashed")+
+    geom_segment(aes(x = CONCt , y =thera.pred.moxi$Upper[[1]] , 
+                     xend = 0, yend =thera.pred.moxi$Upper[[1]]),
+                 arrow=arrow(),col="blue",linetype="dashed")+
+    geom_segment(aes(x = CONCs , y =0 , 
+                     xend = CONCs, yend = supra.pred.moxi$Upper[[1]]),
+                 arrow=arrow(),col="salmon",linetype="dashed")+
+    geom_segment(aes(x = CONCs , y =supra.pred.moxi$Upper[[1]] , 
+                     xend =0 ,yend =supra.pred.moxi$Upper[[1]]),
+                 arrow=arrow(),col="salmon",linetype="dashed")+
+  annotate(x=CONCt,y=thera.pred.moxi$Lower[[1]],label="Therapeutic",geom="label",size=9,vjust=0.5)+
+  annotate(x=CONCs,y=supra.pred.moxi$Lower[[1]],label="Supratherapeutic",geom="label",size=9,vjust=0.5)+size
+ 
+
+p.pred
+ dev.print(file="Figures/moxifit.png", device=png, width=1200,height=800)
+```
+
+
+
+
+```{r QTc-Concentration Analysis Table, warning=FALSE, include=FALSE}
+
+summary(fit.moxi)
+table1<-tidy(fit.moxi, effects="fixed",conf.int=TRUE,conf.level=0.90)%>%
+        select(term,estimate,conf.low,conf.high)
+table2<-tidy(fit.moxi, effects="ran_pars",conf.int=TRUE,conf.level=0.90)%>%
+        select(term,estimate,conf.low,conf.high)
+#
+# tidy not displaying CI for residual error; use intervals() instead
+#
+table2[4,3] <- round(intervals(fit.moxi)$sigma[1],3)
+table2[4,4] <- round(intervals(fit.moxi)$sigma[3],3)
+
+table<-rbind(table1,table2)%>%
+  mutate("90% CI"=paste0("(",round(conf.low,digits=3),", ",round(conf.high,digits=3),")"),
+         estimate=round(estimate,digits=3))%>%
+       dplyr::rename(Parameter=term,Estimate=estimate)%>%select(-conf.low,-conf.high)%>%
+  mutate(Parameter=ifelse(Parameter=="sd_Observation","Residual Error",
+                          ifelse(Parameter=="sd_(Intercept)","Random Effects on Intercept",
+                                 ifelse(Parameter=="sd_CONC","Random Effects on Concentration",
+                                 ifelse(Parameter=="cor_CONC.(Intercept)","Cor Intercept-concentration",Parameter)))))
+
+table.fit<-table%>%
+  kable(booktabs=TRUE, format="latex", linesep = "",digits=3) 
+table.fit%>% writeLines(con="Tables/table.fit.tex") 
+
+```
+
+
+The linear mixed-effects model was fitted to the $\Delta$QTcF data for moxifloxacin and placebo as described in Section \ref{sec:modelfit}. The results from the model are displayed in Figure \ref{fig:moxifit} and Table \ref{tab:table.fit}. The mean slope estimated was `r table[[20,2]]` msec/ng/mL, the 90\% confidence interval around the slope estimate excludes zero indicating positive concentration-dependent effect of moxifloxacin on $\Delta$QTcF intervals. At the therapeutic moxifloxacin  dose of 400 mg, the estimated geometric mean moxifloxacin Cmax value was calculated to be `r round(sum.pk[[1,2]],1)` ng/mL. The estimated  mean change in $\Delta$QTcF at the geometric mean Cmax was `r round(thera.pred.moxi$Contrast[[1]],2)` msec with an 90\% upper bound of `r round(thera.pred.moxi$Upper[[1]],2)`. At the supratherapeutic moxifloxacin dose of 800 mg, the estimated mean change in $\Delta$QTcF  was `r round(supra.pred.moxi$Contrast[[1]],1)` msec with an 90\% upper bound of `r round(supra.pred.moxi$Upper[[1]],2)` at the geometric mean Cmax value of `r round(sum.pk[[2,2]],1)` ng/mL.
+
+
+\begin{figure}[H]
+\caption{$\Delta \Delta$QTcF versus Moxifloxacin Concentration with Associated Predictions at the Observed Therapeutic and Supratherapeutic Geometric Mean Cmax} 
+\includegraphics[width=\textwidth]{../Report/Figures/moxifit.png}
+\label{fig:moxifit}
+\end{figure}
+
+\newpage
+
+\captionsetup{justification = RaggedRight,singlelinecheck=false}
+\captionof{table}{Summary of Model Parameter Fit of $\Delta$QTcF Versus Moxifloxacin Concentration}
+\input{Tables/table.fit.tex}
+\label{tab:table.fit}
+
+
+## Model Adequacy
+
+### Prediction_based Diagnostics
+
+The scatter plots of model-predicted (population and individual) versus observed $\Delta$QTc values with line of
+unity and loess line are presented in Figure \ref{fig:pred_ipred}. Figure \ref{fig:pred_ipred} and do not suggest any patterns that indicate over or under model-predicted $\Delta$QTc.
+
+```{r Prediction-Based Diagnosis, warning=FALSE, include=FALSE}
+
+
+moxi.fit<-readRDS(file="Model/fit.moxi")
+summary(moxi.fit)
+diagplots<-data.frame(
+                     TRT=moxi$TRTG,
+                     NTPD=moxi$NTPD,
+                     CON=moxi$CONC,
+                     DV=getResponse(moxi.fit),
+                     PRED=fitted(moxi.fit,level=0),
+                     IPRED=fitted(moxi.fit,level=1),
+                     RES=residuals(moxi.fit,level=0),
+                     IRES=residuals(moxi.fit,level=1),
+                     WRES=residuals(moxi.fit,level=0,type="pearson"),
+                     IWRES=residuals(moxi.fit,level=1,type="pearson"))
+
+ diagplots2<-coefficients(moxi.fit) # to get individual slope and intercept values
+ diagplots3<-ranef(moxi.fit) #random effects (ETAS)
+ names(diagplots3)<-c("Intercept","slope")
+ 
+ 
+pred<-ggplot(diagplots, aes(x=PRED, y=DV, colour=as.factor(TRT))) +
+  geom_point() + # Use hollow circles
+  theme_bw() +style+
+  geom_abline(intercept = 0,slope = 1, colour = "red", linetype = 2,size = 1)+
+  stat_smooth(method = "lm", se = F, colour = "black")+
+  xlab("Population Predicted") +
+  ylab("Observations")+
+  scale_colour_manual(name="Treatment",
+                      values=c("red","blue"),
+                      labels=c("Moxifloxacin","Placebo")) +  size 
+
+
+
+ 
+ipred<-ggplot(diagplots, aes(x=IPRED, y=DV, colour=as.factor(TRT))) +
+  geom_point() + # Use hollow circles
+  theme_bw() +style+
+  geom_abline(intercept = 0,slope = 1, colour = "red", linetype = 2,size = 1)+
+  stat_smooth(method = "lm", se = F, colour = "black")+
+  xlab("Individual Predicted") +
+  ylab("Observations")+
+  scale_colour_manual(name="Treatment",
+                      values=c("red","blue"),
+                      labels=c("Moxifloxacin","Placebo")) +  size  
+ 
+grid.arrange(pred, ipred, ncol=1) 
+dev.print(file="Figures/DV_pred_ipred.png", device=png, width=1200,height=800)
+
+
+
+```
+\begin{figure}[H]
+\caption{Population and Individual Model Predictions Diagnostic Plots} 
+\includegraphics[width=\textwidth]{../Report/Figures/DV_pred_ipred.png}
+\label{fig:pred_ipred}
+\end{figure}
+
+### Residual-Based Diagnostics
+
+Figure \ref{fig:res} presents scatter plots of population and individual standarized residuals (Pearson weighted) versus population and individual model predictions of $\Delta$QTcF and moxifloxacin plasma concentrations. In all cases, the residuals are randomly scattered around zero suggesting lack of model misspecification.
+
+```{r Residual-Based diagnostics, warning=FALSE, include=FALSE}
+
+res1 <- ggplot(data=diagplots, aes(x=PRED, y=WRES, colour=as.factor(TRT))) +
+        theme_bw() + style+
+        xlab("Population Predicted") +
+        geom_point()+
+        geom_hline(yintercept = 0,linetype=2)+size+theme(legend.position = "none")
+        #scale_colour_manual(name="Treatment",
+         #             values=c("red","blue"),
+           #           labels=c("Moxifloxacin","Placebo"))+size
+
+
+res2 <- ggplot(data=diagplots, aes(x=CON, y=WRES, colour=as.factor(TRT))) +
+        theme_bw() + style+
+        xlab("Moxifloxacin Concentration (ng/mL)") +
+        geom_point()+
+        geom_hline(yintercept = 0,linetype=2)+size+ theme(legend.position = "none")
+        #scale_colour_manual(name="Treatment",
+        #              values=c("red","blue"),
+        #              labels=c("Moxifloxacin","Placebo"))+size
+
+
+res3 <- ggplot(data=diagplots, aes(x=IPRED, y=IWRES, colour=as.factor(TRT))) +
+        theme_bw() + style+
+        xlab("Individual Predicted") +
+        geom_point()+
+        geom_hline(yintercept = 0,linetype=2)+size+ theme(legend.position = "none")
+       # scale_colour_manual(name="Treatment",
+        #              values=c("red","blue"),
+        #              labels=c("Moxifloxacin","Placebo"))+size
+
+res4 <- ggplot(data=diagplots, aes(x=CON, y=IWRES, colour=as.factor(TRT))) +
+        theme_bw() + style+
+        xlab("Moxifloxacin Concentration (ng/mL)") +
+        geom_point()+
+        geom_hline(yintercept = 0,linetype=2)+size+ theme(legend.position = "none")
+       # scale_colour_manual(name="Treatment",
+        #              values=c("red","blue"),
+        #              labels=c("Moxifloxacin","Placebo"))+size
+
+
+grid.arrange(res1, res2,res3,res4, ncol=2) 
+dev.print(file="Figures/res.png", device=png, width=1200,height=800)
+
+```
+\begin{figure}[H]
+\caption{Population and Individual Standardized Residuals versus Population and Individual Model $\Delta$QTc Predictions and Moxifloxacin Concentrations} 
+\includegraphics[width=\textwidth]{../Report/Figures/res.png}
+\label{fig:res}
+\end{figure}
+
+Figure \ref{fig:qq} displays the quantile-quantile plots of residuals. The residuals fall in the line of unity with no heavy tails indicative of model misspecification. The residuals follow  normal distribution with a mean of zero.
+
+
+
+```{r Boxplots and q-q plots, warning=FALSE, include=FALSE}
+
+qq1 <- ggplot(diagplots, aes(sample = WRES))+
+       stat_qq(aes(sample=WRES, colour=as.factor(TRT)))+
+       theme_bw() +style+
+      geom_abline(intercept = 0,slope = 1, colour = "black", linetype = 2,size = 1)+
+       ylab("Quantiles of WRES ") +
+       xlab("Quantiles of Normal Distribution") +size+ theme(legend.position = "none")
+       #scale_colour_manual(name="Treatment",
+        #              values=c("red","blue"),
+       #               labels=c("Moxifloxacin","Placebo"))+size
+
+
+qq2 <- ggplot(diagplots, aes(sample = IWRES))+
+       stat_qq(aes(sample=IWRES, colour=as.factor(TRT)))+
+       theme_bw() +style+
+      geom_abline(intercept = 0,slope = 1, colour = "black", linetype = 2,size = 1)+
+       ylab("Quantiles of IWRES ") +
+       xlab("Quantiles of Normal Distribution") +size+ theme(legend.position = "none")
+       #scale_colour_manual(name="Treatment",
+       #               values=c("red","blue"),
+       #               labels=c("Moxifloxacin","Placebo"))+size
+
+grid.arrange(qq1, qq2, ncol=1) 
+dev.print(file="Figures/qq.png", device=png, width=1200,height=800)
+
+```
+
+\begin{figure}[H]
+\caption{Quantile-Quantile (Q-Q) Plots of Pearson Weighted Standardized Residuals} 
+\includegraphics[width=\textwidth]{../Report/Figures/qq.png}
+\label{fig:qq}
+\end{figure}
+
+Figures \ref{fig:boxplots1} and \ref{fig:boxplots2} are boxplots of population and individual model residuals versus the nominal timepoints for the assessments and versus treatment groups, placebo and moxifloxacin. Residuals are centered around zero not showing any particular pattern.
+
+```{r boxplots time,warning=FALSE,include=FALSE}
+boxp1 <- ggplot(diagplots, aes(x=as.factor(NTPD),y=WRES)) +
+       geom_hline(yintercept = 0, lwd = 2) +
+       geom_hline(yintercept = -2, linetype = "dashed", lwd = 2) +
+       geom_hline(yintercept = 2, linetype = "dashed", lwd = 2) +
+       geom_boxplot()+style+theme(axis.text.x = element_text(angle = 45)) +
+       labs(y = "Weighted Residuals", x = "Nominal Time (hrs)") + size
+
+boxp2 <- ggplot(diagplots, aes(x=as.factor(NTPD),y=IWRES)) +
+       geom_hline(yintercept = 0, lwd = 2) +
+       geom_hline(yintercept = -2, linetype = "dashed", lwd = 2) +
+       geom_hline(yintercept = 2, linetype = "dashed", lwd = 2) +
+       geom_boxplot()+style+theme(axis.text.x = element_text(angle = 45)) +
+       labs(y = "Individual Weighted Residuals", x = "Nominal Time (hrs)") + size
+
+grid.arrange(boxp1, boxp2, ncol=1) 
+dev.print(file="Figures/boxplots1.png", device=png, width=1200,height=800)
+```
+
+\begin{figure}[H]
+\caption{Boxplots of Standardized Residuals Versus Nominal Time Postdose} 
+\includegraphics[width=\textwidth]{../Report/Figures/boxplots1.png}
+\label{fig:boxplots1}
+\end{figure}
+
+
+```{r boxplots tretment,warning=FALSE,include=FALSE}
+
+diagplots%<>%mutate(TRT=ifelse(TRT=="D - moxifloxacin", "Moxifloxacin", "Placebo"))
+
+boxp3 <- ggplot(diagplots, aes(x=TRT,y=WRES,fill=TRT)) +
+       geom_hline(yintercept = 0, lwd = 2) +
+       geom_hline(yintercept = -2, linetype = "dashed", lwd = 2) +
+       geom_hline(yintercept = 2, linetype = "dashed", lwd = 2) +
+       geom_boxplot()+style+
+       labs(y = "Weighted Residuals", x = "Nominal Time (hrs)") + size+ theme(legend.position = "none")
+
+boxp4 <- ggplot(diagplots, aes(x=TRT,y=IWRES,fill=TRT)) +
+       geom_hline(yintercept = 0, lwd = 2) +
+       geom_hline(yintercept = -2, linetype = "dashed", lwd = 2) +
+       geom_hline(yintercept = 2, linetype = "dashed", lwd = 2) +
+       geom_boxplot()+style+
+       labs(y = "Individual Weighted Residuals", x = "Nominal Time (hrs)") + size+ theme(legend.position = "none")
+
+grid.arrange(boxp3, boxp4, ncol=1) 
+dev.print(file="Figures/boxplots2.png", device=png, width=1200,height=800)
+```
+\begin{figure}[H]
+\caption{Boxplots of Standardized Residuals Versus Treatment} 
+\includegraphics[width=\textwidth]{../Report/Figures/boxplots2.png}
+\label{fig:boxplots2}
+\end{figure}
+
+### Evaluation of Linear Mixed-Effects Model for $\Delta$QTc-Drug Concentration Relationship
+
+Figure \ref{fig:DQTCquantile} corresponds to the evaluation of the final model. Mean  baseline-corrected QTcF ($\Delta$QTcF) versus moxifloxacin concentration quantiles derived from the observed data with model-predicted variables and the associated 90\% CI overlayed. 
+
+
+
+```{r Quantiles DeltaQTcF, warning=FALSE, include=FALSE}
+
+
+
+fit.moxi <- lme(DQTF ~ TAFD + TRTG + CONC + DBQTF -1, data = moxi, 
+                na.action = na.exclude,
+                random = ~ 1 + CONC|SUBJID)
+
+
+
+
+CIs<-ggeffect(fit.moxi, terms=c("CONC","TRTG","TAFD"),ci.lvl = 0.90,type="fe", interval = "confidence", full.data=TRUE)
+summary(CIs)
+
+obs<-moxi%>%filter(DOSE>0)%>%
+          mutate(QCON=ntile(CONC,10))%>%
+         group_by(QCON)%>%
+         dplyr::summarize(MCON=median(CONC))%>%ungroup()
+dqtf<-moxi%>%filter(DOSE>0)%>%
+   mutate(QCON=ntile(CONC,10))
+
+
+moxi.only<-left_join(obs,dqtf,by=c("QCON"))
+
+
+
+
+fit.plot.deltaQTF<-ggplot(CIs%>%filter(group=="D - moxifloxacin", facet=="HR 2"), aes(x, predicted)) +
+                  geom_line() +
+                  theme_bw() +style+
+                   geom_ribbon(aes(ymin = conf.low, ymax = conf.high),fill="blue", alpha = 0.3)+
+                    geom_errorbar(data=moxi.only,mapping=aes(MCON, y=DQTF),
+                   stat="summary",
+                   fun.min=function(x) quantile(x,0.1),
+                   fun.max=function(x) quantile(x,0.9))+
+                   geom_point(data=moxi.only,mapping=aes(MCON, y=DQTF),
+                   stat="summary", fun=mean)+
+                  labs(y=expression(Delta~QTcF (msec)),
+                   x="Moxifloxacin Concentration (ng/mL)")+ size
+
+
+fit.plot.deltaQTF
+dev.print(file="Figures/DQTCquantile.png", device=png, width=1200,height=800)
+
+```
+\begin{figure}[H]
+\caption{$\Delta$QTcF versus Moxifloxacin Concentration Quantile Plot} 
+\includegraphics[width=\textwidth]{../Report/Figures/DQTCquantile.png}
+\label{fig:DQTCquantile}
+\end{figure}
+
+
+
+# Discussion
+
+# Conclusions
+
+
+
+\clearpage
+# References 
+
+
+
+
+
